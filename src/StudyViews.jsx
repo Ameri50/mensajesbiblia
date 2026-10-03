@@ -95,6 +95,15 @@ export function MessageReader({ message, loading, error, onRetry, jumpTo, onBack
         <button className="ask-cta" onClick={() => onAsk("")}><Icon name="spark" size={17} /> Consultar este mensaje</button>
       </header>
 
+      {message.audioUrl && (
+        <section className="message-audio" aria-label="Audio del mensaje">
+          <strong>Escuchar mensaje</strong>
+          <audio controls preload="none" src={message.audioUrl}>
+            Tu navegador no puede reproducir este audio.
+          </audio>
+        </section>
+      )}
+
       {(composer?.number === 0 || messageNotes.length > 0) && (
         <div className="notes-block">
           {messageNotes.map((n) => <NoteItem key={n.id} note={n} study={study} onToast={onToast} />)}

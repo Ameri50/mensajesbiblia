@@ -8,12 +8,14 @@ import { createServer as createViteServer } from "vite";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const catalogPath = path.join(__dirname, "Resources", "bro_branham_sermons_es.json");
+const audioCatalogPath = path.join(__dirname, "Resources", "branham_audio_catalog.json");
 const port = Number(process.env.PORT || 5173);
 const app = express();
 
 app.use(express.json({ limit: "64kb" }));
 
 let catalogPromise;
+let audioCatalogPromise;
 function getCatalog() {
   catalogPromise ??= readFile(catalogPath, "utf8").then((contents) => {
     const catalog = JSON.parse(contents);
@@ -23,6 +25,26 @@ function getCatalog() {
     return catalog.sermons;
   });
   return catalogPromise;
+}
+
+function getAudioCatalog() {
+  audioCatalogPromise ??= readFile(audioCatalogPath, "utf8").then((contents) => {
+    const catalog = JSON.parse(contents);
+    if (!Array.isArray(catalog)) {
+      throw new Error("El catálogo de audio no contiene una lista válida de mensajes.");
+    }
+    return catalog;
+  });
+  return audioCatalogPromise;
+}
+
+async function getSpanishAudio(id) {
+  const catalog = await getAudioCatalog();
+  const matches = catalog.filter((entry) => entry.code === id && entry.audio);
+  const match = matches.find((entry) => entry.lang === "SPN");
+  if (!match) return "";
+  const url = new URL(match.audio);
+  return url.protocol === "https:" ? url.href : "";
 }
 
 function getSummary(sermon) {
@@ -284,6 +306,7 @@ app.get("/api/sermons/:id", async (request, response, next) => {
     }
     response.json({
       ...getSummary(sermon),
+      audioUrl: await getSpanishAudio(sermon.id),
       paragraphs: sermon.paragraphs ?? [],
     });
   } catch (error) {

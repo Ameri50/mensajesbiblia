@@ -87,7 +87,55 @@ export function BibleView({ onToast, study, target }) {
   const [focus, setFocus] = useState(null);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState(null);
+  const [speaking, setSpeaking] = useState(false);
+  const speechRef = useRef({ active: false, verses: [], index: 0 });
   const topRef = useRef(null);
+
+  const stopReading = () => {
+    speechRef.current.active = false;
+    window.speechSynthesis?.cancel();
+    setSpeaking(false);
+  };
+
+  useEffect(() => () => {
+    speechRef.current.active = false;
+    window.speechSynthesis?.cancel();
+  }, []);
+
+  function readNextVerse() {
+    const reading = speechRef.current;
+    if (!reading.active) return;
+    if (reading.index >= reading.verses.length) {
+      reading.active = false;
+      setSpeaking(false);
+      return;
+    }
+    const verse = reading.verses[reading.index++];
+    const utterance = new SpeechSynthesisUtterance(`${verse.verse}. ${verse.text}`);
+    utterance.lang = "es-ES";
+    const spanishVoice = window.speechSynthesis.getVoices().find((voice) => voice.lang.toLowerCase().startsWith("es"));
+    if (spanishVoice) utterance.voice = spanishVoice;
+    utterance.onend = readNextVerse;
+    utterance.onerror = (event) => {
+      if (event.error === "canceled" || !speechRef.current.active) return;
+      speechRef.current.active = false;
+      setSpeaking(false);
+      onToast("No se pudo reproducir la lectura en voz alta.");
+    };
+    window.speechSynthesis.speak(utterance);
+  }
+
+  function startReading() {
+    if (!("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") {
+      onToast("La lectura en voz alta no está disponible en este navegador.");
+      return;
+    }
+    if (!chapter?.verses?.length) return;
+    speechRef.current = { active: true, verses: chapter.verses, index: 0 };
+    setSpeaking(true);
+    window.speechSynthesis.cancel();
+    readNextVerse();
+  }
 
   useEffect(() => { getJson("/api/bible/books").then((d) => setBooks(d.books)).catch((e) => setError(e.message)); }, []);
   useEffect(() => {
@@ -105,11 +153,11 @@ export function BibleView({ onToast, study, target }) {
     return () => window.clearTimeout(timer);
   }, [query]);
 
-  useEffect(() => { if (target) { setPos({ book: target.book, chapter: target.chapter }); setFocus(target.verse); setTab("read"); setQuery(""); } }, [target]);
+  useEffect(() => { if (target) { stopReading(); setPos({ book: target.book, chapter: target.chapter }); setFocus(target.verse); setTab("read"); setQuery(""); } }, [target]);
   useEffect(() => { setComposer(null); }, [pos]);
 
   const open = (v) => { setPos({ book: v.bookIndex, chapter: v.chapter }); setFocus(v.verse); setTab("read"); setQuery(""); };
-  const go = (book, ch) => { setFocus(null); setPos({ book, chapter: ch }); topRef.current?.scrollIntoView(); };
+  const go = (book, ch) => { stopReading(); setFocus(null); setPos({ book, chapter: ch }); topRef.current?.scrollIntoView(); };
   const total = books[pos.book]?.chapters || 1;
   const prev = () => (pos.chapter > 1 ? go(pos.book, pos.chapter - 1) : pos.book > 0 && go(pos.book - 1, books[pos.book - 1].chapters));
   const next = () => (pos.chapter < total ? go(pos.book, pos.chapter + 1) : pos.book < books.length - 1 && go(pos.book + 1, 1));
@@ -118,8 +166,8 @@ export function BibleView({ onToast, study, target }) {
     <section className="library-view bible-view" ref={topRef}>
       <div className="welcome-row"><div><h1>Biblia</h1><p>Reina-Valera 1960 · completa, para leer y consultar.</p></div></div>
       <div className="bible-tabs">
-        <button className={tab === "read" ? "tool-btn on-tab" : "tool-btn"} onClick={() => setTab("read")}><Icon name="book" size={15} /> Leer</button>
-        <button className={tab === "ai" ? "tool-btn on-tab" : "tool-btn"} onClick={() => setTab("ai")}><Icon name="spark" size={15} /> IA de la Biblia</button>
+        <button className={tab === "read" ? "tool-btn on-tab" : "tool-btn"} onClick={() => { stopReading(); setTab("read"); }}><Icon name="book" size={15} /> Leer</button>
+        <button className={tab === "ai" ? "tool-btn on-tab" : "tool-btn"} onClick={() => { stopReading(); setTab("ai"); }}><Icon name="spark" size={15} /> IA de la Biblia</button>
       </div>
 
       {tab === "ai" ? <BibleChat onToast={onToast} onOpen={open} /> : (
@@ -142,6 +190,15 @@ export function BibleView({ onToast, study, target }) {
           ) : error ? <p className="quote-hint">{error}</p> : !chapter ? <div className="reader-loading"><span className="spinner" /> Cargando…</div> : (
             <article className="bible-chapter">
               <h2>{chapter.book} {chapter.chapter}</h2>
+              <div className="bible-audio">
+                <strong>Escuchar capítulo</strong>
+                {speaking ? (
+                  <button className="ghost-button" onClick={stopReading}>Detener lectura</button>
+                ) : (
+                  <button className="ask-cta" onClick={startReading}>Leer en voz alta</button>
+                )}
+                <span>Voz en español del dispositivo</span>
+              </div>
               {chapter.verses.map((v) => {
                 const id = `bible:${pos.book}:${chapter.chapter}`;
                 const key = itemKey(id, v.verse);
